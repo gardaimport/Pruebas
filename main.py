@@ -4,21 +4,22 @@ import io
 import os
 from datetime import datetime
 
-# Configuración de página
+# Configuración
 st.set_page_config(page_title="Control Trazabilidad Lotes", layout="wide")
 
-# 1. CARGA DEL MAESTRO EXCEL (Fijo en GitHub o local)
+# =========================
+# CARGA MAESTRO CLIENTES
+# =========================
 @st.cache_data
 def cargar_maestro():
     ruta_archivo = "Clientes.xlsx"
     if os.path.exists(ruta_archivo):
         try:
-            df = pd.read_excel(
+            return pd.read_excel(
                 ruta_archivo,
                 engine='openpyxl',
                 dtype={'Nº': str, 'Cód. vendedor': str}
             )
-            return df
         except Exception as e:
             st.error(f"Error al abrir Clientes.xlsx: {e}")
             return pd.DataFrame()
@@ -28,60 +29,56 @@ df_clientes = cargar_maestro()
 
 st.title("🎯 Sistema de Trazabilidad: Encargos vs Ventas")
 
-# --- BARRA LATERAL ---
-st.sidebar.header("📂 Subir archivos de consulta")
-f_encargos = st.sidebar.file_uploader("1. Encargos registrados", type=['xlsx'])
-f_cal = st.sidebar.file_uploader("2. Archivo ENCARGOS/CAL", type=['xlsx'])
-f_movs = st.sidebar.file_uploader("3. Archivo movimiento producto", type=['xlsx'])
+# =========================
+# SUBIDA ARCHIVOS
+# =========================
+st.sidebar.header("📂 Subir archivos")
+f_encargos = st.sidebar.file_uploader("1. Encargos", type=['xlsx'])
+f_cal = st.sidebar.file_uploader("2. Relación CAL", type=['xlsx'])
+f_movs = st.sidebar.file_uploader("3. Movimientos", type=['xlsx'])
 
 if f_encargos and f_cal and f_movs:
 
-    # --- CARGA ---
     df_enc = pd.read_excel(f_encargos, dtype={'Cód. vendedor': str, 'Nº Pedido compra': str})
     df_cal = pd.read_excel(f_cal, dtype={'Nº': str, 'Nº de albarán': str})
     df_mov = pd.read_excel(f_movs, dtype={
         'Nº documento': str,
         'Nº lote': str,
-        'Cód. procedencia mov.': str,
-        'Nº producto': str
+        'Cód. procedencia mov.': str
     })
 
-    # --- LIMPIEZA ---
+    # Limpieza
     df_enc['Cantidad'] = pd.to_numeric(df_enc['Cantidad'], errors='coerce').fillna(0)
     df_mov['Cantidad'] = pd.to_numeric(df_mov['Cantidad'], errors='coerce').fillna(0)
 
-    # Fechas a formato simple
     for col in ['Fecha registro', 'Fecha caducidad']:
         if col in df_mov.columns:
             df_mov[col] = pd.to_datetime(df_mov[col], errors='coerce').dt.strftime('%d/%m/%Y')
 
     # =========================
-    # A. VENTAS DETALLADAS
+    # VENTAS
     # =========================
-    ventas_detalle = df_mov[df_mov['Tipo movimiento'] == 'Venta'].copy()
+    ventas = df_mov[df_mov['Tipo movimiento'] == 'Venta'].copy()
 
-    ventas_detalle = pd.merge(
-        ventas_detalle,
+    ventas = pd.merge(
+        ventas,
         df_clientes[['Nº', 'Alias', 'Cód. vendedor']],
         left_on='Cód. procedencia mov.',
         right_on='Nº',
         how='left'
     )
 
-    resumen_ventas_lote = ventas_detalle.groupby(
-        ['Nº lote', 'Cód. vendedor', 'Nº', 'Alias', 'Fecha registro']
-    ).agg({
-        'Cantidad': lambda x: abs(x.sum())
-    }).reset_index().rename(columns={
-        'Nº': 'Nº_Cliente_Venta',
+    ventas = ventas.rename(columns={
         'Alias': 'Alias_Cliente_Venta',
-        'Cantidad': 'Cant_Vendida',
+        'Nº': 'Nº_Cliente_Venta',
         'Cód. vendedor': 'Vendedor_Que_Vendió',
         'Fecha registro': 'Fecha_Venta'
     })
 
+    ventas['Cantidad'] = ventas['Cantidad'].abs()
+
     # =========================
-    # B. TRAZABILIDAD ENCARGO
+    # ENCARGOS → LOTES
     # =========================
     paso1 = pd.merge(
         df_enc[['Cód. vendedor', 'Nº Pedido compra', 'Descripción', 'Cantidad', 'Alias']],
@@ -96,115 +93,97 @@ if f_encargos and f_cal and f_movs:
         'Cód. vendedor': 'Vendedor_Encargo'
     })
 
-    entradas_lotes = df_mov[df_mov['Tipo movimiento'] == 'Compra'][[
-        'Nº documento', 'Nº lote', 'Fecha caducidad', 'Fecha registro'
+    entradas = df_mov[df_mov['Tipo movimiento'] == 'Compra'][[
+        'Nº documento', 'Nº lote', 'Fecha registro', 'Fecha caducidad'
     ]].drop_duplicates()
 
-    paso2 = pd.merge(
+    df_final = pd.merge(
         paso1,
-        entradas_lotes,
+        entradas,
         left_on='CAL_Entrada',
         right_on='Nº documento',
         how='left'
     )
 
     # =========================
-    # C. UNIÓN FINAL
+    # VISUALIZACIÓN POR LOTES
     # =========================
-    df_final = pd.merge(
-        paso2,
-        resumen_ventas_lote,
-        on='Nº lote',
-        how='left'
-    ).fillna({
-        'Cant_Vendida': 0,
-        'Nº_Cliente_Venta': '---',
-        'Alias_Cliente_Venta': 'SIN VENTA',
-        'Vendedor_Que_Vendió': '---',
-        'Fecha_Venta': '---'
-    })
+    st.subheader("📦 Trazabilidad visual por Lote")
 
-    # =========================
-    # D. NUEVAS COLUMNAS CLAVE
-    # =========================
-    df_final['Cant_Pendiente'] = df_final['Cant_Encargada'] - df_final['Cant_Vendida']
+    for lote, df_lote in df_final.groupby('Nº lote'):
 
-    def calcular_estado(row):
-        if row['Cant_Vendida'] == 0:
-            return 'SIN VENDER'
-        elif row['Cant_Pendiente'] > 0:
-            return 'VENTA PARCIAL'
-        elif row['Cant_Pendiente'] == 0:
-            return 'VENDIDO COMPLETO'
+        if pd.isna(lote):
+            continue
+
+        ventas_lote = ventas[ventas['Nº lote'] == lote]
+
+        total_enc = df_lote['Cant_Encargada'].iloc[0]
+        total_vendido = ventas_lote['Cantidad'].sum()
+        pendiente = total_enc - total_vendido
+
+        # Estado
+        if total_vendido == 0:
+            estado = "🔴 SIN VENDER"
+        elif pendiente > 0:
+            estado = "🟡 VENTA PARCIAL"
+        elif pendiente == 0:
+            estado = "🟢 COMPLETO"
         else:
-            return 'SOBREVENTA ⚠️'
+            estado = "⚠️ SOBREVENTA"
 
-    df_final['Estado_Lote'] = df_final.apply(calcular_estado, axis=1)
+        titulo = f"📦 LOTE: {lote} | {df_lote['Descripción'].iloc[0]} | {estado}"
 
-    df_final['Control_Vendedor'] = df_final.apply(
-        lambda x: 'OK' if x['Vendedor_Encargo'] == x['Vendedor_Que_Vendió'] else 'DISTINTO ⚠️',
-        axis=1
-    )
+        with st.expander(titulo):
 
-    # =========================
-    # E. REPORTE FINAL
-    # =========================
-    reporte_excel = df_final[[
-        'Vendedor_Encargo', 'Nombre_Encargo', 'Descripción', 'Nº Pedido compra',
-        'CAL_Entrada', 'Fecha registro', 'Nº lote', 'Fecha caducidad',
-        'Cant_Encargada', 'Cant_Vendida', 'Cant_Pendiente',
-        'Estado_Lote', 'Control_Vendedor',
-        'Nº_Cliente_Venta', 'Alias_Cliente_Venta',
-        'Vendedor_Que_Vendió', 'Fecha_Venta'
-    ]].rename(columns={
-        'Fecha registro': 'Fecha_Entrada_Almacén'
-    })
+            # RESUMEN
+            st.markdown(f"""
+            **Entradas:** {total_enc}  
+            **Vendido:** {total_vendido}  
+            **Pendiente:** {pendiente}  
+            """)
 
-    # =========================
-    # F. FILTRO
-    # =========================
-    st.subheader("📊 Resumen rápido")
+            # =====================
+            # ENCARGO INICIAL (OPCIONAL)
+            # =====================
+            st.markdown("### 📥 Encargo inicial")
+            for vendedor, df_enc_v in df_lote.groupby('Vendedor_Encargo'):
+                st.markdown(
+                    f"- 👤 Comercial {vendedor} encargó **{df_enc_v['Cant_Encargada'].iloc[0]} uds**"
+                )
 
-    col1, col2, col3, col4 = st.columns(4)
+            # =====================
+            # VENTAS
+            # =====================
+            if ventas_lote.empty:
+                st.markdown("### 🛑 Sin ventas registradas")
+            else:
+                st.markdown("### 💰 Ventas realizadas")
 
-    col1.metric("Total Lotes", len(df_final))
-    col2.metric("Sin vender", (df_final['Estado_Lote'] == 'SIN VENDER').sum())
-    col3.metric("Ventas parciales", (df_final['Estado_Lote'] == 'VENTA PARCIAL').sum())
-    col4.metric("Problemas", (df_final['Estado_Lote'] == 'SOBREVENTA ⚠️').sum())
+                for vendedor, df_vend in ventas_lote.groupby('Vendedor_Que_Vendió'):
 
-    estado_filtro = st.selectbox(
-        "Filtrar por estado",
-        ["Todos", "SIN VENDER", "VENTA PARCIAL", "VENDIDO COMPLETO", "SOBREVENTA ⚠️"]
-    )
+                    st.markdown("---")
+                    st.markdown(f"👤 **Comercial:** {vendedor}")
 
-    if estado_filtro != "Todos":
-        reporte_excel = reporte_excel[reporte_excel['Estado_Lote'] == estado_filtro]
-
-    # Orden
-    reporte_excel = reporte_excel.sort_values(
-        by=['Estado_Lote', 'Cant_Pendiente'],
-        ascending=[True, False]
-    )
+                    for _, row in df_vend.iterrows():
+                        st.markdown(
+                            f"- {row['Alias_Cliente_Venta']} → **{row['Cantidad']} uds** ({row['Fecha_Venta']})"
+                        )
 
     # =========================
-    # G. VISUALIZACIÓN
+    # DESCARGA EXCEL (PLANO)
     # =========================
-    st.subheader("📋 Trazabilidad de Lotes")
-    st.dataframe(reporte_excel, use_container_width=True, hide_index=True)
+    st.subheader("📥 Descargar datos en Excel")
 
-    # =========================
-    # H. DESCARGA EXCEL
-    # =========================
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-        reporte_excel.to_excel(writer, index=False, sheet_name='Trazabilidad')
+        df_final.to_excel(writer, index=False, sheet_name='Base')
 
     st.download_button(
-        label="📥 Descargar Excel",
+        label="Descargar Excel base",
         data=output.getvalue(),
         file_name=f"Trazabilidad_{datetime.now().strftime('%d-%m')}.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
 
 else:
-    st.info("Sube los archivos para procesar la trazabilidad.")
+    st.info("Sube los archivos para comenzar.")
