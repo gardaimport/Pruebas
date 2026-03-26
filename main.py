@@ -47,7 +47,9 @@ if f_encargos and f_cal and f_movs:
         'Cód. procedencia mov.': str
     })
 
-    # Limpieza
+    # =========================
+    # LIMPIEZA
+    # =========================
     df_enc['Cantidad'] = pd.to_numeric(df_enc['Cantidad'], errors='coerce').fillna(0)
     df_mov['Cantidad'] = pd.to_numeric(df_mov['Cantidad'], errors='coerce').fillna(0)
 
@@ -105,6 +107,9 @@ if f_encargos and f_cal and f_movs:
         how='left'
     )
 
+    # 🔴 EVITAR DUPLICADOS
+    df_final = df_final.drop_duplicates()
+
     # =========================
     # VISUALIZACIÓN POR LOTES
     # =========================
@@ -117,8 +122,10 @@ if f_encargos and f_cal and f_movs:
 
         ventas_lote = ventas[ventas['Nº lote'] == lote]
 
-        total_enc = df_lote['Cant_Encargada'].iloc[0]
-        total_vendido = ventas_lote['Cantidad'].sum()
+        # ✅ CORRECCIÓN: suma real del encargo
+        total_enc = df_lote['Cant_Encargada'].sum()
+
+        total_vendido = ventas_lote['Cantidad'].fillna(0).sum()
         pendiente = total_enc - total_vendido
 
         # Estado
@@ -131,7 +138,10 @@ if f_encargos and f_cal and f_movs:
         else:
             estado = "⚠️ SOBREVENTA"
 
-        titulo = f"📦 LOTE: {lote} | {df_lote['Descripción'].iloc[0]} | {estado}"
+        # ✅ AÑADIR CADUCIDAD
+        caducidad = df_lote['Fecha caducidad'].dropna().iloc[0] if not df_lote['Fecha caducidad'].dropna().empty else "Sin fecha"
+
+        titulo = f"📦 LOTE: {lote} | Cad: {caducidad} | {df_lote['Descripción'].iloc[0]} | {estado}"
 
         with st.expander(titulo):
 
@@ -143,12 +153,13 @@ if f_encargos and f_cal and f_movs:
             """)
 
             # =====================
-            # ENCARGO INICIAL (OPCIONAL)
+            # ENCARGO INICIAL
             # =====================
             st.markdown("### 📥 Encargo inicial")
+
             for vendedor, df_enc_v in df_lote.groupby('Vendedor_Encargo'):
                 st.markdown(
-                    f"- 👤 Comercial {vendedor} encargó **{df_enc_v['Cant_Encargada'].iloc[0]} uds**"
+                    f"- 👤 Comercial {vendedor} encargó **{df_enc_v['Cant_Encargada'].sum()} uds**"
                 )
 
             # =====================
@@ -170,7 +181,7 @@ if f_encargos and f_cal and f_movs:
                         )
 
     # =========================
-    # DESCARGA EXCEL (PLANO)
+    # DESCARGA EXCEL
     # =========================
     st.subheader("📥 Descargar datos en Excel")
 
