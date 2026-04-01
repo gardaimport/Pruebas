@@ -58,7 +58,7 @@ if f_encargos and f_cal and f_movs:
             df_mov[col] = pd.to_datetime(df_mov[col], errors='coerce').dt.strftime('%d/%m/%Y')
 
     # =========================
-    # VENTAS
+    # VENTAS (CORREGIDO)
     # =========================
     ventas = df_mov[df_mov['Tipo movimiento'] == 'Venta'].copy()
 
@@ -77,7 +77,9 @@ if f_encargos and f_cal and f_movs:
         'Fecha registro': 'Fecha_Venta'
     })
 
-    ventas['Cantidad'] = ventas['Cantidad'].abs()
+    # 🔥 CLAVE: separar ventas y devoluciones
+    ventas['Cant_Venta'] = ventas['Cantidad'].apply(lambda x: abs(x) if x < 0 else 0)
+    ventas['Cant_Devolucion'] = ventas['Cantidad'].apply(lambda x: x if x > 0 else 0)
 
     # =========================
     # ENCARGOS → LOTES
@@ -107,7 +109,6 @@ if f_encargos and f_cal and f_movs:
         how='left'
     )
 
-    # 🔴 EVITAR DUPLICADOS
     df_final = df_final.drop_duplicates()
 
     # =========================
@@ -122,14 +123,16 @@ if f_encargos and f_cal and f_movs:
 
         ventas_lote = ventas[ventas['Nº lote'] == lote]
 
-        # ✅ CORRECCIÓN: suma real del encargo
         total_enc = df_lote['Cant_Encargada'].sum()
 
-        total_vendido = ventas_lote['Cantidad'].fillna(0).sum()
-        pendiente = total_enc - total_vendido
+        total_vendido = ventas_lote['Cant_Venta'].sum()
+        total_devuelto = ventas_lote['Cant_Devolucion'].sum()
+        neto_vendido = total_vendido - total_devuelto
+
+        pendiente = total_enc - neto_vendido
 
         # Estado
-        if total_vendido == 0:
+        if neto_vendido == 0:
             estado = "🔴 SIN VENDER"
         elif pendiente > 0:
             estado = "🟡 VENTA PARCIAL"
@@ -138,7 +141,6 @@ if f_encargos and f_cal and f_movs:
         else:
             estado = "⚠️ SOBREVENTA"
 
-        # ✅ AÑADIR CADUCIDAD
         caducidad = df_lote['Fecha caducidad'].dropna().iloc[0] if not df_lote['Fecha caducidad'].dropna().empty else "Sin fecha"
 
         titulo = f"📦 LOTE: {lote} | Cad: {caducidad} | {df_lote['Descripción'].iloc[0]} | {estado}"
@@ -148,27 +150,24 @@ if f_encargos and f_cal and f_movs:
             # RESUMEN
             st.markdown(f"""
             **Entradas:** {total_enc}  
-            **Vendido:** {total_vendido}  
+            **Ventas:** {total_vendido}  
+            **Devoluciones:** {total_devuelto}  
+            **Neto vendido:** {neto_vendido}  
             **Pendiente:** {pendiente}  
             """)
 
-            # =====================
-            # ENCARGO INICIAL
-            # =====================
+            # ENCARGO
             st.markdown("### 📥 Encargo inicial")
-
             for vendedor, df_enc_v in df_lote.groupby('Vendedor_Encargo'):
                 st.markdown(
                     f"- 👤 Comercial {vendedor} encargó **{df_enc_v['Cant_Encargada'].sum()} uds**"
                 )
 
-            # =====================
             # VENTAS
-            # =====================
             if ventas_lote.empty:
-                st.markdown("### 🛑 Sin ventas registradas")
+                st.markdown("### 🛑 Sin movimientos")
             else:
-                st.markdown("### 💰 Ventas realizadas")
+                st.markdown("### 💰 Movimientos (ventas y devoluciones)")
 
                 for vendedor, df_vend in ventas_lote.groupby('Vendedor_Que_Vendió'):
 
@@ -176,8 +175,14 @@ if f_encargos and f_cal and f_movs:
                     st.markdown(f"👤 **Comercial:** {vendedor}")
 
                     for _, row in df_vend.iterrows():
+
+                        if row['Cantidad'] < 0:
+                            texto = f"🔴 Venta: {abs(row['Cantidad'])} uds"
+                        else:
+                            texto = f"🟢 Devolución: {row['Cantidad']} uds"
+
                         st.markdown(
-                            f"- {row['Alias_Cliente_Venta']} → **{row['Cantidad']} uds** ({row['Fecha_Venta']})"
+                            f"- {row['Alias_Cliente_Venta']} → {texto} ({row['Fecha_Venta']})"
                         )
 
     # =========================
