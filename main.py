@@ -17,12 +17,12 @@ st.set_page_config(
 # =====================================================
 @st.cache_data
 def cargar_maestro():
-    ruta_archivo = "Clientes.xlsx"
+    ruta = "Clientes.xlsx"
 
-    if os.path.exists(ruta_archivo):
+    if os.path.exists(ruta):
         try:
             return pd.read_excel(
-                ruta_archivo,
+                ruta,
                 engine="openpyxl",
                 dtype={
                     "Nº": str,
@@ -38,7 +38,7 @@ def cargar_maestro():
 df_clientes = cargar_maestro()
 
 # =====================================================
-# MENÚ LATERAL
+# MENÚ
 # =====================================================
 st.sidebar.title("📂 Menú")
 
@@ -52,18 +52,20 @@ seccion = st.sidebar.radio(
 
 # =====================================================
 # SECCIÓN 1
+# (la dejamos simple para no tocar tu parte funcional)
 # =====================================================
 if seccion == "📦 Trazabilidad lotes":
 
     st.title("📦 Sistema de Trazabilidad por Lotes")
-    st.info("Sección 1 mantenida igual que tu versión funcional.")
+    st.info("Mantén aquí tu sección 1 funcional actual.")
 
 # =====================================================
-# SECCIÓN 2 CORREGIDA DEFINITIVA
+# SECCIÓN 2 CORREGIDA REAL
+# PRODUCTOS DESGLOSADOS POR COMERCIAL
 # =====================================================
 elif seccion == "📥 Entradas vs Encargos":
 
-    st.title("📥 Entradas reales vs Encargos por Comercial")
+    st.title("📥 Productos entrados desglosados por Comercial")
 
     st.sidebar.header("Subir archivos")
 
@@ -74,7 +76,7 @@ elif seccion == "📥 Entradas vs Encargos":
     )
 
     f_cal = st.sidebar.file_uploader(
-        "2. Relación CAL",
+        "2. Archivo CAL",
         type=["xlsx"],
         key="cal2"
     )
@@ -87,9 +89,9 @@ elif seccion == "📥 Entradas vs Encargos":
 
     if f_encargos and f_cal and f_movs:
 
-        # =====================================
+        # =================================================
         # CARGA
-        # =====================================
+        # =================================================
         df_enc = pd.read_excel(
             f_encargos,
             dtype={
@@ -109,13 +111,14 @@ elif seccion == "📥 Entradas vs Encargos":
         df_mov = pd.read_excel(
             f_movs,
             dtype={
-                "Nº documento": str
+                "Nº documento": str,
+                "Nº producto": str
             }
         )
 
-        # =====================================
+        # =================================================
         # LIMPIEZA
-        # =====================================
+        # =================================================
         df_enc["Cantidad"] = pd.to_numeric(
             df_enc["Cantidad"],
             errors="coerce"
@@ -126,27 +129,29 @@ elif seccion == "📥 Entradas vs Encargos":
             errors="coerce"
         ).fillna(0)
 
-        # =====================================
-        # SOLO COMPRAS
-        # =====================================
+        # =================================================
+        # SOLO ENTRADAS
+        # =================================================
         compras = df_mov[
             df_mov["Tipo movimiento"] == "Compra"
         ].copy()
 
-        # =====================================
+        # =================================================
         # ENCARGOS -> CAL
-        # =====================================
+        # =================================================
         paso1 = pd.merge(
             df_enc,
-            df_cal[["Nº", "Nº de albarán"]],
+            df_cal[
+                ["Nº", "Nº de albarán"]
+            ],
             left_on="Nº Pedido compra",
             right_on="Nº",
             how="left"
         )
 
-        # =====================================
+        # =================================================
         # CAL -> MOVIMIENTOS
-        # =====================================
+        # =================================================
         final = pd.merge(
             paso1,
             compras,
@@ -155,115 +160,108 @@ elif seccion == "📥 Entradas vs Encargos":
             how="left"
         )
 
-        # =====================================
-        # DETECTAR COLUMNAS
-        # =====================================
-        posibles_producto = [
+        # =================================================
+        # DESCRIPCIÓN BUENA
+        # Preferimos la del archivo encargos
+        # =================================================
+        col_desc = "Descripción"
+
+        if col_desc not in final.columns:
+            final["Descripción"] = ""
+
+        # =================================================
+        # REFERENCIA
+        # =================================================
+        col_ref = None
+
+        for c in [
             "Nº producto_x",
             "Nº producto",
             "Nº producto_y",
-            "Producto",
-            "Referencia",
-            "Cod producto"
-        ]
-
-        col_producto = None
-
-        for c in posibles_producto:
+            "Referencia"
+        ]:
             if c in final.columns:
-                col_producto = c
+                col_ref = c
                 break
 
-        if col_producto is None:
-            st.error("No se detectó columna producto.")
+        if col_ref is None:
+            st.error("No se encontró referencia producto.")
             st.write(final.columns.tolist())
             st.stop()
 
-        posibles_desc = [
-            "Descripción",
-            "Descripcion",
-            "Producto",
-            "Nombre producto"
-        ]
-
-        col_desc = None
-
-        for c in posibles_desc:
-            if c in final.columns:
-                col_desc = c
-                break
-
-        if col_desc is None:
-            col_desc = col_producto
-
-        # =====================================
-        # COLUMNAS GROUPBY SIN DUPLICADOS
-        # =====================================
-        cols_group = []
-
-        cols_group.append(col_producto)
-
-        if col_desc != col_producto:
-            cols_group.append(col_desc)
-
-        cols_group.append("Cód. vendedor")
-
-        # =====================================
-        # AGRUPAR
-        # =====================================
+        # =================================================
+        # RESUMEN REAL
+        # UN PRODUCTO DESGLOSADO POR COMERCIAL
+        # =================================================
         resumen = final.groupby(
-            cols_group,
+            [
+                col_ref,
+                "Descripción",
+                "Cód. vendedor"
+            ],
             dropna=False
         ).agg(
-            Encargado=("Cantidad_x", "sum"),
-            Entrado=("Cantidad_y", "sum")
+            Cantidad_Encargada=("Cantidad_x", "sum"),
+            Cantidad_Entrada=("Cantidad_y", "sum")
         ).reset_index()
 
-        resumen["Encargado"] = resumen["Encargado"].fillna(0)
-        resumen["Entrado"] = resumen["Entrado"].fillna(0)
+        resumen["Cantidad_Entrada"] = resumen[
+            "Cantidad_Entrada"
+        ].fillna(0)
 
         resumen["Diferencia"] = (
-            resumen["Entrado"] - resumen["Encargado"]
+            resumen["Cantidad_Entrada"] -
+            resumen["Cantidad_Encargada"]
         )
 
-        # =====================================
-        # CREAR COLUMNAS FIJAS
-        # =====================================
-        resumen["Referencia"] = resumen[col_producto]
+        resumen = resumen.rename(columns={
+            col_ref: "Referencia",
+            "Cód. vendedor": "Comercial"
+        })
 
-        if col_desc in resumen.columns:
-            resumen["Descripción"] = resumen[col_desc]
-        else:
-            resumen["Descripción"] = resumen[col_producto]
-
-        resumen["Comercial"] = resumen["Cód. vendedor"]
-
-        # =====================================
-        # QUEDARSE SOLO CON COLUMNAS BUENAS
-        # =====================================
+        # =================================================
+        # ORDEN
+        # =================================================
         resumen = resumen[
             [
                 "Referencia",
                 "Descripción",
                 "Comercial",
-                "Encargado",
-                "Entrado",
+                "Cantidad_Encargada",
+                "Cantidad_Entrada",
                 "Diferencia"
             ]
         ]
 
-        # =====================================
-        # ORDENAR
-        # =====================================
         resumen = resumen.sort_values(
-            by=["Referencia", "Comercial"],
-            ascending=True
+            by=["Referencia", "Comercial"]
         )
 
-        # =====================================
-        # MOSTRAR
-        # =====================================
+        # =================================================
+        # VISUAL
+        # =================================================
         st.subheader("📋 Resultado")
+
+        for ref, bloque in resumen.groupby("Referencia"):
+
+            desc = bloque["Descripción"].iloc[0]
+
+            with st.expander(
+                f"📦 {ref} - {desc}"
+            ):
+
+                st.dataframe(
+                    bloque.drop(
+                        columns=["Referencia", "Descripción"]
+                    ),
+                    use_container_width=True,
+                    hide_index=True
+                )
+
+        # =================================================
+        # TABLA COMPLETA
+        # =================================================
+        st.subheader("📄 Tabla completa")
 
         st.dataframe(
             resumen,
@@ -271,44 +269,22 @@ elif seccion == "📥 Entradas vs Encargos":
             hide_index=True
         )
 
-        # =====================================
-        # KPIS
-        # =====================================
-        st.subheader("📊 Totales")
-
-        c1, c2, c3 = st.columns(3)
-
-        c1.metric(
-            "Referencias",
-            resumen["Referencia"].nunique()
-        )
-
-        c2.metric(
-            "Comerciales",
-            resumen["Comercial"].nunique()
-        )
-
-        c3.metric(
-            "Diferencia total",
-            round(resumen["Diferencia"].sum(), 2)
-        )
-
-        # =====================================
+        # =================================================
         # DESCARGA
-        # =====================================
+        # =================================================
         output = io.BytesIO()
 
         with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
             resumen.to_excel(
                 writer,
                 index=False,
-                sheet_name="Entradas_vs_Encargos"
+                sheet_name="Resumen"
             )
 
         st.download_button(
             "📥 Descargar Excel",
             data=output.getvalue(),
-            file_name=f"Entradas_vs_Encargos_{datetime.now().strftime('%d-%m-%Y')}.xlsx",
+            file_name=f"Productos_por_Comercial_{datetime.now().strftime('%d-%m-%Y')}.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
 
