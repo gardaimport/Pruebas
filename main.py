@@ -80,9 +80,6 @@ if seccion == "📦 Trazabilidad lotes":
 
     if f_encargos and f_cal and f_movs:
 
-        # -------------------------------
-        # CARGA
-        # -------------------------------
         df_enc = pd.read_excel(
             f_encargos,
             dtype={
@@ -108,9 +105,7 @@ if seccion == "📦 Trazabilidad lotes":
             }
         )
 
-        # -------------------------------
         # LIMPIEZA
-        # -------------------------------
         df_enc["Cantidad"] = pd.to_numeric(
             df_enc["Cantidad"],
             errors="coerce"
@@ -128,11 +123,11 @@ if seccion == "📦 Trazabilidad lotes":
                     errors="coerce"
                 ).dt.strftime("%d/%m/%Y")
 
-        # -------------------------------
-        # MOVIMIENTOS DE VENTA
+        # =====================================
+        # VENTAS
         # negativo = venta
         # positivo = devolución
-        # -------------------------------
+        # =====================================
         ventas = df_mov[
             df_mov["Tipo movimiento"] == "Venta"
         ].copy()
@@ -162,9 +157,9 @@ if seccion == "📦 Trazabilidad lotes":
             lambda x: x if x > 0 else 0
         )
 
-        # -------------------------------
+        # =====================================
         # ENCARGOS -> CAL
-        # -------------------------------
+        # =====================================
         paso1 = pd.merge(
             df_enc[
                 [
@@ -191,9 +186,6 @@ if seccion == "📦 Trazabilidad lotes":
             "Cód. vendedor": "Vendedor_Encargo"
         })
 
-        # -------------------------------
-        # ENTRADAS REALES
-        # -------------------------------
         entradas = df_mov[
             df_mov["Tipo movimiento"] == "Compra"
         ][
@@ -213,10 +205,10 @@ if seccion == "📦 Trazabilidad lotes":
             how="left"
         ).drop_duplicates()
 
-        # -------------------------------
-        # VISUAL
-        # -------------------------------
-        st.subheader("📋 Resultado por lotes")
+        # =====================================
+        # VISUAL LOTES
+        # =====================================
+        st.subheader("📦 Resultado por lotes")
 
         for lote, df_lote in df_final.groupby("Nº lote"):
 
@@ -291,26 +283,6 @@ if seccion == "📦 Trazabilidad lotes":
                                 f"- {row['Alias_Cliente_Venta']} | {txt} | {row['Fecha_Venta']}"
                             )
 
-        # DESCARGA
-        output = io.BytesIO()
-
-        with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
-            df_final.to_excel(
-                writer,
-                index=False,
-                sheet_name="Lotes"
-            )
-
-        st.download_button(
-            "📥 Descargar Excel",
-            data=output.getvalue(),
-            file_name=f"Trazabilidad_{datetime.now().strftime('%d-%m-%Y')}.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        )
-
-    else:
-        st.info("Sube los 3 archivos.")
-
 # =====================================================
 # SECCIÓN 2
 # ENTRADAS VS ENCARGOS (CORREGIDA)
@@ -341,9 +313,6 @@ elif seccion == "📥 Entradas vs Encargos":
 
     if f_encargos and f_cal and f_movs:
 
-        # ==========================================
-        # CARGA
-        # ==========================================
         df_enc = pd.read_excel(
             f_encargos,
             dtype={
@@ -367,9 +336,7 @@ elif seccion == "📥 Entradas vs Encargos":
             }
         )
 
-        # ==========================================
         # LIMPIEZA
-        # ==========================================
         df_enc["Cantidad"] = pd.to_numeric(
             df_enc["Cantidad"],
             errors="coerce"
@@ -380,16 +347,12 @@ elif seccion == "📥 Entradas vs Encargos":
             errors="coerce"
         ).fillna(0)
 
-        # ==========================================
         # SOLO COMPRAS
-        # ==========================================
         compras = df_mov[
             df_mov["Tipo movimiento"] == "Compra"
         ].copy()
 
-        # ==========================================
-        # ENLACE ENCARGOS -> CAL
-        # ==========================================
+        # ENCARGOS -> CAL
         paso1 = pd.merge(
             df_enc,
             df_cal[
@@ -403,9 +366,7 @@ elif seccion == "📥 Entradas vs Encargos":
             how="left"
         )
 
-        # ==========================================
-        # ENLACE CAL -> MOVIMIENTOS
-        # ==========================================
+        # CAL -> MOVIMIENTOS
         final = pd.merge(
             paso1,
             compras,
@@ -414,9 +375,9 @@ elif seccion == "📥 Entradas vs Encargos":
             how="left"
         )
 
-        # ==========================================
+        # =====================================
         # DETECTAR COLUMNA PRODUCTO
-        # ==========================================
+        # =====================================
         posibles_producto = [
             "Nº producto_x",
             "Nº producto",
@@ -439,9 +400,9 @@ elif seccion == "📥 Entradas vs Encargos":
             st.write(final.columns.tolist())
             st.stop()
 
-        # ==========================================
+        # =====================================
         # DETECTAR DESCRIPCIÓN
-        # ==========================================
+        # =====================================
         posibles_desc = [
             "Descripción",
             "Descripcion",
@@ -459,15 +420,18 @@ elif seccion == "📥 Entradas vs Encargos":
         if col_desc is None:
             col_desc = col_producto
 
-        # ==========================================
-        # RESUMEN
-        # ==========================================
+        # =====================================
+        # GROUPBY SIN DUPLICADOS
+        # =====================================
+        cols_group = [col_producto]
+
+        if col_desc != col_producto:
+            cols_group.append(col_desc)
+
+        cols_group.append("Cód. vendedor")
+
         resumen = final.groupby(
-            [
-                col_producto,
-                col_desc,
-                "Cód. vendedor"
-            ],
+            cols_group,
             dropna=False
         ).agg(
             Encargado=("Cantidad_x", "sum"),
@@ -481,6 +445,9 @@ elif seccion == "📥 Entradas vs Encargos":
             resumen["Entrado"] - resumen["Encargado"]
         )
 
+        if col_desc not in resumen.columns:
+            resumen["Descripción"] = resumen[col_producto]
+
         resumen = resumen.rename(columns={
             col_producto: "Referencia",
             col_desc: "Descripción",
@@ -491,9 +458,9 @@ elif seccion == "📥 Entradas vs Encargos":
             by=["Referencia", "Comercial"]
         )
 
-        # ==========================================
-        # VISUALIZACIÓN
-        # ==========================================
+        # =====================================
+        # VISUAL
+        # =====================================
         st.subheader("📋 Resultado")
 
         st.dataframe(
@@ -502,31 +469,31 @@ elif seccion == "📥 Entradas vs Encargos":
             hide_index=True
         )
 
-        # ==========================================
+        # =====================================
         # TOTALES
-        # ==========================================
+        # =====================================
         st.subheader("📊 Totales")
 
-        col1, col2, col3 = st.columns(3)
+        c1, c2, c3 = st.columns(3)
 
-        col1.metric(
+        c1.metric(
             "Referencias",
             resumen["Referencia"].nunique()
         )
 
-        col2.metric(
+        c2.metric(
             "Comerciales",
             resumen["Comercial"].nunique()
         )
 
-        col3.metric(
+        c3.metric(
             "Diferencia total",
             round(resumen["Diferencia"].sum(), 2)
         )
 
-        # ==========================================
-        # DESCARGA
-        # ==========================================
+        # =====================================
+        # DESCARGA EXCEL
+        # =====================================
         output = io.BytesIO()
 
         with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
