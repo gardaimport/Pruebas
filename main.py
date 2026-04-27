@@ -313,7 +313,7 @@ if seccion == "📦 Trazabilidad lotes":
 
 # =====================================================
 # SECCIÓN 2
-# ENTRADAS VS ENCARGOS
+# ENTRADAS VS ENCARGOS (CORREGIDA)
 # =====================================================
 elif seccion == "📥 Entradas vs Encargos":
 
@@ -341,9 +341,9 @@ elif seccion == "📥 Entradas vs Encargos":
 
     if f_encargos and f_cal and f_movs:
 
-        # -------------------------------
+        # ==========================================
         # CARGA
-        # -------------------------------
+        # ==========================================
         df_enc = pd.read_excel(
             f_encargos,
             dtype={
@@ -367,9 +367,9 @@ elif seccion == "📥 Entradas vs Encargos":
             }
         )
 
-        # -------------------------------
+        # ==========================================
         # LIMPIEZA
-        # -------------------------------
+        # ==========================================
         df_enc["Cantidad"] = pd.to_numeric(
             df_enc["Cantidad"],
             errors="coerce"
@@ -380,16 +380,16 @@ elif seccion == "📥 Entradas vs Encargos":
             errors="coerce"
         ).fillna(0)
 
-        # -------------------------------
-        # SOLO COMPRAS (ENTRADAS)
-        # -------------------------------
+        # ==========================================
+        # SOLO COMPRAS
+        # ==========================================
         compras = df_mov[
             df_mov["Tipo movimiento"] == "Compra"
         ].copy()
 
-        # -------------------------------
-        # ENLACE ENCARGO -> CAL
-        # -------------------------------
+        # ==========================================
+        # ENLACE ENCARGOS -> CAL
+        # ==========================================
         paso1 = pd.merge(
             df_enc,
             df_cal[
@@ -403,9 +403,9 @@ elif seccion == "📥 Entradas vs Encargos":
             how="left"
         )
 
-        # -------------------------------
-        # ENLACE CAL -> MOVIMIENTO REAL
-        # -------------------------------
+        # ==========================================
+        # ENLACE CAL -> MOVIMIENTOS
+        # ==========================================
         final = pd.merge(
             paso1,
             compras,
@@ -414,21 +414,67 @@ elif seccion == "📥 Entradas vs Encargos":
             how="left"
         )
 
-        # -------------------------------
+        # ==========================================
+        # DETECTAR COLUMNA PRODUCTO
+        # ==========================================
+        posibles_producto = [
+            "Nº producto_x",
+            "Nº producto",
+            "Nº producto_y",
+            "Producto",
+            "Referencia",
+            "Cod producto",
+            "Código producto"
+        ]
+
+        col_producto = None
+
+        for col in posibles_producto:
+            if col in final.columns:
+                col_producto = col
+                break
+
+        if col_producto is None:
+            st.error("No se encontró columna producto")
+            st.write(final.columns.tolist())
+            st.stop()
+
+        # ==========================================
+        # DETECTAR DESCRIPCIÓN
+        # ==========================================
+        posibles_desc = [
+            "Descripción",
+            "Descripcion",
+            "Producto",
+            "Nombre producto"
+        ]
+
+        col_desc = None
+
+        for col in posibles_desc:
+            if col in final.columns:
+                col_desc = col
+                break
+
+        if col_desc is None:
+            col_desc = col_producto
+
+        # ==========================================
         # RESUMEN
-        # Ajusta nombre columna producto si cambia
-        # -------------------------------
+        # ==========================================
         resumen = final.groupby(
             [
-                "Nº producto_x",
-                "Descripción",
+                col_producto,
+                col_desc,
                 "Cód. vendedor"
-            ]
+            ],
+            dropna=False
         ).agg(
             Encargado=("Cantidad_x", "sum"),
             Entrado=("Cantidad_y", "sum")
         ).reset_index()
 
+        resumen["Encargado"] = resumen["Encargado"].fillna(0)
         resumen["Entrado"] = resumen["Entrado"].fillna(0)
 
         resumen["Diferencia"] = (
@@ -436,7 +482,8 @@ elif seccion == "📥 Entradas vs Encargos":
         )
 
         resumen = resumen.rename(columns={
-            "Nº producto_x": "Referencia",
+            col_producto: "Referencia",
+            col_desc: "Descripción",
             "Cód. vendedor": "Comercial"
         })
 
@@ -444,6 +491,9 @@ elif seccion == "📥 Entradas vs Encargos":
             by=["Referencia", "Comercial"]
         )
 
+        # ==========================================
+        # VISUALIZACIÓN
+        # ==========================================
         st.subheader("📋 Resultado")
 
         st.dataframe(
@@ -452,7 +502,31 @@ elif seccion == "📥 Entradas vs Encargos":
             hide_index=True
         )
 
+        # ==========================================
+        # TOTALES
+        # ==========================================
+        st.subheader("📊 Totales")
+
+        col1, col2, col3 = st.columns(3)
+
+        col1.metric(
+            "Referencias",
+            resumen["Referencia"].nunique()
+        )
+
+        col2.metric(
+            "Comerciales",
+            resumen["Comercial"].nunique()
+        )
+
+        col3.metric(
+            "Diferencia total",
+            round(resumen["Diferencia"].sum(), 2)
+        )
+
+        # ==========================================
         # DESCARGA
+        # ==========================================
         output = io.BytesIO()
 
         with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
@@ -465,7 +539,7 @@ elif seccion == "📥 Entradas vs Encargos":
         st.download_button(
             "📥 Descargar Excel",
             data=output.getvalue(),
-            file_name=f"Entradas_vs_Encargos_{datetime.now().strftime('%d-%m-%Y')}.xlsx",
+            file_name="Entradas_vs_Encargos.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
 
