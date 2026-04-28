@@ -58,83 +58,69 @@ if seccion == "📦 Trazabilidad por Lotes":
 
     if f_encargos and f_cal and f_movs:
 
-        df_enc = pd.read_excel(f_encargos, dtype={'Cód. vendedor': str, 'Nº Pedido compra': str})
-        df_cal = pd.read_excel(f_cal, dtype={'Nº': str, 'Nº de albarán': str})
-        df_mov = pd.read_excel(f_movs, dtype={'Nº documento': str, 'Nº lote': str, 'Cód. procedencia mov.': str})
+        df_enc = pd.read_excel(f_encargos, dtype=str)
+        df_cal = pd.read_excel(f_cal, dtype=str)
+        df_mov = pd.read_excel(f_movs, dtype=str)
 
-        df_enc['Cantidad'] = pd.to_numeric(df_enc['Cantidad'], errors='coerce').fillna(0)
-        df_mov['Cantidad'] = pd.to_numeric(df_mov['Cantidad'], errors='coerce').fillna(0)
+        df_enc["Cantidad"] = pd.to_numeric(df_enc["Cantidad"], errors="coerce").fillna(0)
+        df_mov["Cantidad"] = pd.to_numeric(df_mov["Cantidad"], errors="coerce").fillna(0)
 
-        for col in ['Fecha registro', 'Fecha caducidad']:
+        for col in ["Fecha registro", "Fecha caducidad"]:
             if col in df_mov.columns:
-                df_mov[col] = pd.to_datetime(df_mov[col], errors='coerce').dt.strftime('%d/%m/%Y')
+                df_mov[col] = pd.to_datetime(df_mov[col], errors="coerce").dt.strftime("%d/%m/%Y")
 
-        # VENTAS
-        ventas = df_mov[df_mov['Tipo movimiento'] == 'Venta'].copy()
+        ventas = df_mov[df_mov["Tipo movimiento"] == "Venta"].copy()
 
         ventas = pd.merge(
             ventas,
-            df_clientes[['Nº', 'Alias', 'Cód. vendedor']],
-            left_on='Cód. procedencia mov.',
-            right_on='Nº',
-            how='left'
+            df_clientes[["Nº", "Alias", "Cód. vendedor"]],
+            left_on="Cód. procedencia mov.",
+            right_on="Nº",
+            how="left"
         )
 
-        ventas = ventas.rename(columns={
-            'Alias': 'Alias_Cliente_Venta',
-            'Nº': 'Nº_Cliente_Venta',
-            'Cód. vendedor': 'Vendedor_Que_Vendió',
-            'Fecha registro': 'Fecha_Venta'
-        })
+        ventas["Cant_Venta"] = ventas["Cantidad"].apply(lambda x: abs(x) if x < 0 else 0)
+        ventas["Cant_Devolucion"] = ventas["Cantidad"].apply(lambda x: x if x > 0 else 0)
 
-        ventas['Cant_Venta'] = ventas['Cantidad'].apply(lambda x: abs(x) if x < 0 else 0)
-        ventas['Cant_Devolucion'] = ventas['Cantidad'].apply(lambda x: x if x > 0 else 0)
-
-        # ENCARGOS
         paso1 = pd.merge(
-            df_enc[['Cód. vendedor', 'Nº Pedido compra', 'Descripción', 'Cantidad', 'Alias']],
-            df_cal[['Nº', 'Nº de albarán']],
-            left_on='Nº Pedido compra',
-            right_on='Nº',
-            how='left'
-        ).rename(columns={
-            'Cantidad': 'Cant_Encargada',
-            'Alias': 'Nombre_Encargo',
-            'Nº de albarán': 'CAL_Entrada',
-            'Cód. vendedor': 'Vendedor_Encargo'
-        })
+            df_enc,
+            df_cal[["Nº", "Nº de albarán"]],
+            left_on="Nº Pedido compra",
+            right_on="Nº",
+            how="left"
+        )
 
-        entradas = df_mov[df_mov['Tipo movimiento'] == 'Compra'][[
-            'Nº documento', 'Nº lote', 'Fecha registro', 'Fecha caducidad'
+        entradas = df_mov[df_mov["Tipo movimiento"] == "Compra"][[
+            "Nº documento", "Nº lote", "Fecha registro", "Fecha caducidad"
         ]].drop_duplicates()
 
         df_final = pd.merge(
             paso1,
             entradas,
-            left_on='CAL_Entrada',
-            right_on='Nº documento',
-            how='left'
+            left_on="CAL_Entrada",
+            right_on="Nº documento",
+            how="left"
         ).drop_duplicates()
 
         st.subheader("📦 Trazabilidad por Lotes")
 
-        for lote, df_lote in df_final.groupby('Nº lote'):
+        for lote, df_lote in df_final.groupby("Nº lote"):
 
             if pd.isna(lote):
                 continue
 
-            ventas_lote = ventas[ventas['Nº lote'] == lote]
+            ventas_lote = ventas[ventas["Nº lote"] == lote]
 
-            total_enc = df_lote['Cant_Encargada'].sum()
-            total_vendido = ventas_lote['Cant_Venta'].sum()
-            total_devuelto = ventas_lote['Cant_Devolucion'].sum()
+            total_enc = df_lote["Cantidad"].sum()
+            total_vendido = ventas_lote["Cant_Venta"].sum()
+            total_devuelto = ventas_lote["Cant_Devolucion"].sum()
 
             neto = total_vendido - total_devuelto
             pendiente = total_enc - neto
 
             estado = "🔴 SIN VENDER" if neto == 0 else "🟡 PARCIAL" if pendiente > 0 else "🟢 COMPLETO"
 
-            cad = df_lote['Fecha caducidad'].dropna().iloc[0] if not df_lote['Fecha caducidad'].dropna().empty else "Sin fecha"
+            cad = df_lote["Fecha caducidad"].dropna().iloc[0] if not df_lote["Fecha caducidad"].dropna().empty else "Sin fecha"
 
             with st.expander(f"📦 LOTE {lote} | {estado}"):
 
@@ -145,7 +131,7 @@ if seccion == "📦 Trazabilidad por Lotes":
 
 # =====================================================
 # =====================================================
-# SECCIÓN 2 (REPARTO POR COMERCIAL MEJORADO)
+# SECCIÓN 2 (CORREGIDA DESCRIPCIÓN)
 # =====================================================
 # =====================================================
 elif seccion == "📥 Entradas por Comercial":
@@ -185,22 +171,39 @@ elif seccion == "📥 Entradas por Comercial":
             how="inner"
         )
 
+        # =====================================================
+        # 🔥 FIX DESCRIPCIÓN (CLAVE)
+        # =====================================================
+        col_desc = None
+        for c in final.columns:
+            if "descrip" in c.lower():
+                col_desc = c
+                break
+
+        if col_desc is None:
+            col_desc = "Descripción"
+
         resultado = final.rename(columns={
             "Cantidad_x": "Cantidad Encargada",
             "Cantidad_y": "Cantidad Recibida",
-            "Cód. vendedor": "Comercial"
+            "Cód. vendedor": "Comercial",
+            col_desc: "Descripción"
         })
 
         st.subheader("📋 Entradas por Comercial")
 
         for ref, bloque in resultado.groupby("Nº producto"):
 
+            desc = bloque["Descripción"].iloc[0] if "Descripción" in bloque.columns else "Sin descripción"
+
             total_enc = bloque["Cantidad Encargada"].sum()
             total_rec = bloque["Cantidad Recibida"].sum()
 
             estado = "⚠️ MENOS RECIBIDO" if total_rec < total_enc else "✔ COMPLETO"
 
-            with st.expander(f"📦 {ref} | Enc: {total_enc} | Rec: {total_rec} | {estado}"):
+            with st.expander(
+                f"📦 {ref} - {desc} | Enc: {total_enc} | Rec: {total_rec} | {estado}"
+            ):
 
                 st.dataframe(
                     bloque[["Comercial", "Cantidad Encargada"]],
@@ -208,7 +211,9 @@ elif seccion == "📥 Entradas por Comercial":
                     hide_index=True
                 )
 
-        # EXCEL
+        # =====================================================
+        # DESCARGA EXCEL
+        # =====================================================
         output = io.BytesIO()
 
         with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
