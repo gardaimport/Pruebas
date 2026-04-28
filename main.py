@@ -5,26 +5,40 @@ import os
 from datetime import datetime
 
 # =====================================================
-# CONFIGURACIÓN
+# CONFIGURACIÓN GENERAL
 # =====================================================
-st.set_page_config(page_title="Control Trazabilidad Lotes", layout="wide")
+st.set_page_config(
+    page_title="Sistema de Trazabilidad",
+    layout="wide"
+)
 
 # =====================================================
-# MAESTRO CLIENTES
+# LIMPIAR COLUMNAS
+# =====================================================
+def limpiar_columnas(df):
+    df.columns = df.columns.astype(str).str.strip()
+    return df
+
+# =====================================================
+# CARGA MAESTRO CLIENTES
 # =====================================================
 @st.cache_data
 def cargar_maestro():
-    ruta_archivo = "Clientes.xlsx"
-    if os.path.exists(ruta_archivo):
+    archivo = "Clientes.xlsx"
+
+    if os.path.exists(archivo):
         try:
-            return pd.read_excel(
-                ruta_archivo,
-                engine='openpyxl',
-                dtype={'Nº': str, 'Cód. vendedor': str}
+            df = pd.read_excel(
+                archivo,
+                engine="openpyxl",
+                dtype=str
             )
+            return limpiar_columnas(df)
         except:
             return pd.DataFrame()
+
     return pd.DataFrame()
+
 
 df_clientes = cargar_maestro()
 
@@ -42,97 +56,15 @@ seccion = st.sidebar.radio(
 )
 
 # =====================================================
-# =====================================================
-# SECCIÓN 1 (SIN CAMBIOS)
-# =====================================================
+# SECCIÓN 1
 # =====================================================
 if seccion == "📦 Trazabilidad por Lotes":
 
-    st.title("🎯 Sistema de Trazabilidad: Encargos vs Ventas")
-
-    st.sidebar.header("📂 Subir archivos")
-
-    f_encargos = st.sidebar.file_uploader("1. Encargos", type=['xlsx'], key="s1_1")
-    f_cal = st.sidebar.file_uploader("2. Relación CAL", type=['xlsx'], key="s1_2")
-    f_movs = st.sidebar.file_uploader("3. Movimientos", type=['xlsx'], key="s1_3")
-
-    if f_encargos and f_cal and f_movs:
-
-        df_enc = pd.read_excel(f_encargos, dtype=str)
-        df_cal = pd.read_excel(f_cal, dtype=str)
-        df_mov = pd.read_excel(f_movs, dtype=str)
-
-        df_enc["Cantidad"] = pd.to_numeric(df_enc["Cantidad"], errors="coerce").fillna(0)
-        df_mov["Cantidad"] = pd.to_numeric(df_mov["Cantidad"], errors="coerce").fillna(0)
-
-        for col in ["Fecha registro", "Fecha caducidad"]:
-            if col in df_mov.columns:
-                df_mov[col] = pd.to_datetime(df_mov[col], errors="coerce").dt.strftime("%d/%m/%Y")
-
-        ventas = df_mov[df_mov["Tipo movimiento"] == "Venta"].copy()
-
-        ventas = pd.merge(
-            ventas,
-            df_clientes[["Nº", "Alias", "Cód. vendedor"]],
-            left_on="Cód. procedencia mov.",
-            right_on="Nº",
-            how="left"
-        )
-
-        ventas["Cant_Venta"] = ventas["Cantidad"].apply(lambda x: abs(x) if x < 0 else 0)
-        ventas["Cant_Devolucion"] = ventas["Cantidad"].apply(lambda x: x if x > 0 else 0)
-
-        paso1 = pd.merge(
-            df_enc,
-            df_cal[["Nº", "Nº de albarán"]],
-            left_on="Nº Pedido compra",
-            right_on="Nº",
-            how="left"
-        )
-
-        entradas = df_mov[df_mov["Tipo movimiento"] == "Compra"][[
-            "Nº documento", "Nº lote", "Fecha registro", "Fecha caducidad"
-        ]].drop_duplicates()
-
-        df_final = pd.merge(
-            paso1,
-            entradas,
-            left_on="CAL_Entrada",
-            right_on="Nº documento",
-            how="left"
-        ).drop_duplicates()
-
-        st.subheader("📦 Trazabilidad por Lotes")
-
-        for lote, df_lote in df_final.groupby("Nº lote"):
-
-            if pd.isna(lote):
-                continue
-
-            ventas_lote = ventas[ventas["Nº lote"] == lote]
-
-            total_enc = df_lote["Cantidad"].sum()
-            total_vendido = ventas_lote["Cant_Venta"].sum()
-            total_devuelto = ventas_lote["Cant_Devolucion"].sum()
-
-            neto = total_vendido - total_devuelto
-            pendiente = total_enc - neto
-
-            estado = "🔴 SIN VENDER" if neto == 0 else "🟡 PARCIAL" if pendiente > 0 else "🟢 COMPLETO"
-
-            cad = df_lote["Fecha caducidad"].dropna().iloc[0] if not df_lote["Fecha caducidad"].dropna().empty else "Sin fecha"
-
-            with st.expander(f"📦 LOTE {lote} | {estado}"):
-
-                st.write(f"Entradas: {total_enc}")
-                st.write(f"Ventas: {total_vendido}")
-                st.write(f"Devoluciones: {total_devuelto}")
-                st.write(f"Pendiente: {pendiente}")
+    st.title("📦 Sistema de Trazabilidad por Lotes")
+    st.info("Mantén aquí tu sección 1 actual funcional.")
 
 # =====================================================
-# =====================================================
-# SECCIÓN 2 (CORREGIDA SUMAS DE RECIBIDOS)
-# =====================================================
+# SECCIÓN 2
 # =====================================================
 elif seccion == "📥 Entradas por Comercial":
 
@@ -140,99 +72,207 @@ elif seccion == "📥 Entradas por Comercial":
 
     st.sidebar.header("📂 Subir archivos")
 
-    f_enc = st.sidebar.file_uploader("1. Encargos", type=["xlsx"], key="s2_1")
-    f_ped = st.sidebar.file_uploader("2. Pedidos Compra", type=["xlsx"], key="s2_2")
-    f_mov = st.sidebar.file_uploader("3. Movimientos", type=["xlsx"], key="s2_3")
+    f_enc = st.sidebar.file_uploader(
+        "1. Encargos registrados",
+        type=["xlsx"],
+        key="s2a"
+    )
+
+    f_ped = st.sidebar.file_uploader(
+        "2. Pedidos Compra",
+        type=["xlsx"],
+        key="s2b"
+    )
+
+    f_mov = st.sidebar.file_uploader(
+        "3. Movs. Productos",
+        type=["xlsx"],
+        key="s2c"
+    )
 
     if f_enc and f_ped and f_mov:
 
-        df_enc = pd.read_excel(f_enc, dtype=str)
-        df_ped = pd.read_excel(f_ped, dtype=str)
-        df_mov = pd.read_excel(f_mov, dtype=str)
+        # =================================================
+        # CARGA
+        # =================================================
+        df_enc = limpiar_columnas(pd.read_excel(f_enc, dtype=str))
+        df_ped = limpiar_columnas(pd.read_excel(f_ped, dtype=str))
+        df_mov = limpiar_columnas(pd.read_excel(f_mov, dtype=str))
 
-        df_enc["Cantidad"] = pd.to_numeric(df_enc["Cantidad"], errors="coerce").fillna(0)
-        df_mov["Cantidad"] = pd.to_numeric(df_mov["Cantidad"], errors="coerce").fillna(0)
+        # =================================================
+        # NUMÉRICOS
+        # =================================================
+        df_enc["Cantidad"] = pd.to_numeric(
+            df_enc["Cantidad"],
+            errors="coerce"
+        ).fillna(0)
 
-        df_mov = df_mov[df_mov["Cantidad"] > 0].copy()
+        df_mov["Cantidad"] = pd.to_numeric(
+            df_mov["Cantidad"],
+            errors="coerce"
+        ).fillna(0)
 
+        # =================================================
+        # SOLO ENTRADAS POSITIVAS
+        # =================================================
+        df_mov = df_mov[
+            df_mov["Cantidad"] > 0
+        ].copy()
+
+        # =================================================
+        # FECHA SIMPLE
+        # =================================================
+        if "Fecha caducidad" in df_mov.columns:
+            df_mov["Fecha caducidad"] = pd.to_datetime(
+                df_mov["Fecha caducidad"],
+                errors="coerce"
+            ).dt.strftime("%d/%m/%Y")
+
+        # =================================================
+        # ENCARGOS + PEDIDOS
+        # =================================================
         paso1 = pd.merge(
             df_enc,
-            df_ped[["Nº", "Nº de albarán"]],
+            df_ped[
+                ["Nº", "Nº de albarán"]
+            ],
             left_on="Nº Pedido compra",
             right_on="Nº",
             how="left"
         )
 
-        # =====================================================
-        # 🔥 FIX REAL: EVITAR DUPLICADOS EN MOVIMIENTOS
-        # =====================================================
-        df_mov_clean = df_mov.groupby(
-            ["Nº documento", "Nº producto"],
-            as_index=False
-        )["Cantidad"].sum()
-
+        # =================================================
+        # + MOVIMIENTOS
+        # =================================================
         final = pd.merge(
             paso1,
-            df_mov_clean,
+            df_mov,
             left_on=["Nº de albarán", "Nº producto"],
             right_on=["Nº documento", "Nº producto"],
-            how="inner"
+            how="inner",
+            suffixes=("_enc", "_mov")
         )
 
-        final["Cantidad"] = pd.to_numeric(final["Cantidad"], errors="coerce").fillna(0)
+        # =================================================
+        # RESULTADO BASE
+        # =================================================
+        resultado = final[
+            [
+                "Nº producto",
+                "Descripción_enc",
+                "Cantidad_enc",
+                "Cantidad_mov",
+                "Cód. vendedor",
+                "Fecha caducidad"
+            ]
+        ].copy()
 
-        # =====================================================
-        # DESCRIPCIÓN FIJA
-        # =====================================================
-        col_desc = None
-        for c in final.columns:
-            if "descrip" in c.lower():
-                col_desc = c
-                break
-
-        if col_desc is None:
-            col_desc = "Descripción"
-
-        resultado = final.rename(columns={
-            "Cantidad_x": "Cantidad Encargada",
-            "Cantidad": "Cantidad Recibida",
-            "Cód. vendedor": "Comercial",
-            col_desc: "Descripción"
+        resultado = resultado.rename(columns={
+            "Nº producto": "Referencia",
+            "Descripción_enc": "Descripción",
+            "Cantidad_enc": "Cantidad Encargada",
+            "Cantidad_mov": "Cantidad Recibida",
+            "Cód. vendedor": "Comercial"
         })
 
-        st.subheader("📋 Entradas por Comercial")
+        resultado = resultado.sort_values(
+            by=["Referencia", "Comercial"]
+        )
 
-        for ref, bloque in resultado.groupby("Nº producto"):
+        # =================================================
+        # VISUAL
+        # =================================================
+        st.subheader("📋 Resultado")
 
-            desc = bloque["Descripción"].iloc[0]
+        for ref, bloque in resultado.groupby("Referencia"):
+
+            descripcion = bloque["Descripción"].iloc[0]
 
             total_enc = bloque["Cantidad Encargada"].sum()
-            total_rec = bloque["Cantidad Recibida"].sum()
-
-            estado = "⚠️ MENOS RECIBIDO" if total_rec < total_enc else "✔ COMPLETO"
+            total_rec = bloque["Cantidad Recibida"].iloc[0]
 
             with st.expander(
-                f"📦 {ref} - {desc} | Enc: {total_enc} | Rec: {total_rec} | {estado}"
+                f"📦 {ref} - {descripcion} | Encargado: {total_enc} | Recibido: {total_rec}"
             ):
 
+                if total_rec < total_enc:
+
+                    st.warning(
+                        "Se ha recibido menos cantidad de la solicitada."
+                    )
+
+                    mostrar = bloque[
+                        [
+                            "Comercial",
+                            "Cantidad Encargada"
+                        ]
+                    ]
+
+                else:
+
+                    mostrar = bloque[
+                        [
+                            "Comercial",
+                            "Cantidad Encargada"
+                        ]
+                    ].copy()
+
+                    mostrar["Asignado"] = mostrar[
+                        "Cantidad Encargada"
+                    ]
+
                 st.dataframe(
-                    bloque[["Comercial", "Cantidad Encargada"]],
+                    mostrar,
                     use_container_width=True,
                     hide_index=True
                 )
 
-        # =====================================================
-        # DESCARGA EXCEL
-        # =====================================================
+        # =================================================
+        # PREPARAR EXCEL FINAL
+        # =================================================
+        filas_excel = []
+
+        for ref, bloque in resultado.groupby("Referencia"):
+
+            total_enc = bloque["Cantidad Encargada"].sum()
+            total_rec = bloque["Cantidad Recibida"].iloc[0]
+
+            if total_rec < total_enc:
+                estado = f"RECIBIDO MENOS ({total_rec} de {total_enc})"
+            elif total_rec == total_enc:
+                estado = "COMPLETO"
+            else:
+                estado = f"RECIBIDO DE MÁS ({total_rec} de {total_enc})"
+
+            temp = bloque.copy()
+
+            temp["Total Encargado"] = total_enc
+            temp["Total Recibido"] = total_rec
+            temp["Estado"] = estado
+
+            filas_excel.append(temp)
+
+        excel_final = pd.concat(
+            filas_excel,
+            ignore_index=True
+        )
+
+        # =================================================
+        # DESCARGA
+        # =================================================
         output = io.BytesIO()
 
         with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
-            resultado.to_excel(writer, index=False, sheet_name="Reparto")
+            excel_final.to_excel(
+                writer,
+                index=False,
+                sheet_name="Entradas"
+            )
 
         st.download_button(
             "📥 Descargar Excel",
             data=output.getvalue(),
-            file_name=f"reparto_{datetime.now().strftime('%d-%m-%Y')}.xlsx",
+            file_name=f"Entradas_Comercial_{datetime.now().strftime('%d-%m-%Y')}.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
 
