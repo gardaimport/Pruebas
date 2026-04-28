@@ -191,8 +191,18 @@ elif seccion == "📥 Entradas por Comercial":
             total_enc = bloque["Cantidad Encargada"].sum()
             total_rec = bloque["Cantidad Recibida"].iloc[0]
 
+            # =================================================
+            # ESTADO CABECERA (AÑADIDO)
+            # =================================================
+            if total_rec < total_enc:
+                estado_header = "🔴 RECIBIDO PARCIAL"
+            elif total_rec == total_enc:
+                estado_header = "🟢 RECIBIDO COMPLETO"
+            else:
+                estado_header = "⚠️ RECIBIDO DE MÁS"
+
             with st.expander(
-                f"📦 {ref} - {descripcion} | Encargado: {total_enc} | Recibido: {total_rec}"
+                f"📦 {ref} - {descripcion} | {estado_header} | Encargado: {total_enc} | Recibido: {total_rec}"
             ):
 
                 if total_rec < total_enc:
