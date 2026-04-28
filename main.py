@@ -43,7 +43,7 @@ seccion = st.sidebar.radio(
 
 # =====================================================
 # =====================================================
-# SECCIÓN 1 (ORIGINAL RESTAURADA)
+# SECCIÓN 1 (SIN CAMBIOS)
 # =====================================================
 # =====================================================
 if seccion == "📦 Trazabilidad por Lotes":
@@ -131,7 +131,7 @@ if seccion == "📦 Trazabilidad por Lotes":
 
 # =====================================================
 # =====================================================
-# SECCIÓN 2 (CORREGIDA DESCRIPCIÓN)
+# SECCIÓN 2 (CORREGIDA SUMAS DE RECIBIDOS)
 # =====================================================
 # =====================================================
 elif seccion == "📥 Entradas por Comercial":
@@ -163,16 +163,26 @@ elif seccion == "📥 Entradas por Comercial":
             how="left"
         )
 
+        # =====================================================
+        # 🔥 FIX REAL: EVITAR DUPLICADOS EN MOVIMIENTOS
+        # =====================================================
+        df_mov_clean = df_mov.groupby(
+            ["Nº documento", "Nº producto"],
+            as_index=False
+        )["Cantidad"].sum()
+
         final = pd.merge(
             paso1,
-            df_mov,
+            df_mov_clean,
             left_on=["Nº de albarán", "Nº producto"],
             right_on=["Nº documento", "Nº producto"],
             how="inner"
         )
 
+        final["Cantidad"] = pd.to_numeric(final["Cantidad"], errors="coerce").fillna(0)
+
         # =====================================================
-        # 🔥 FIX DESCRIPCIÓN (CLAVE)
+        # DESCRIPCIÓN FIJA
         # =====================================================
         col_desc = None
         for c in final.columns:
@@ -185,7 +195,7 @@ elif seccion == "📥 Entradas por Comercial":
 
         resultado = final.rename(columns={
             "Cantidad_x": "Cantidad Encargada",
-            "Cantidad_y": "Cantidad Recibida",
+            "Cantidad": "Cantidad Recibida",
             "Cód. vendedor": "Comercial",
             col_desc: "Descripción"
         })
@@ -194,7 +204,7 @@ elif seccion == "📥 Entradas por Comercial":
 
         for ref, bloque in resultado.groupby("Nº producto"):
 
-            desc = bloque["Descripción"].iloc[0] if "Descripción" in bloque.columns else "Sin descripción"
+            desc = bloque["Descripción"].iloc[0]
 
             total_enc = bloque["Cantidad Encargada"].sum()
             total_rec = bloque["Cantidad Recibida"].sum()
