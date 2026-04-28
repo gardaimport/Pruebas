@@ -64,7 +64,7 @@ if seccion == "📦 Trazabilidad por Lotes":
     st.info("Mantén aquí tu sección 1 actual funcional.")
 
 # =====================================================
-# SECCIÓN 2 NUEVA MEJORADA
+# SECCIÓN 2
 # =====================================================
 elif seccion == "📥 Entradas por Comercial":
 
@@ -112,12 +112,16 @@ elif seccion == "📥 Entradas por Comercial":
             errors="coerce"
         ).fillna(0)
 
-        # Solo entradas positivas
+        # =================================================
+        # SOLO ENTRADAS POSITIVAS
+        # =================================================
         df_mov = df_mov[
             df_mov["Cantidad"] > 0
         ].copy()
 
-        # Fecha simple
+        # =================================================
+        # FECHA SIMPLE
+        # =================================================
         if "Fecha caducidad" in df_mov.columns:
             df_mov["Fecha caducidad"] = pd.to_datetime(
                 df_mov["Fecha caducidad"],
@@ -125,7 +129,7 @@ elif seccion == "📥 Entradas por Comercial":
             ).dt.strftime("%d/%m/%Y")
 
         # =================================================
-        # UNIÓN PEDIDOS
+        # ENCARGOS + PEDIDOS
         # =================================================
         paso1 = pd.merge(
             df_enc,
@@ -138,7 +142,7 @@ elif seccion == "📥 Entradas por Comercial":
         )
 
         # =================================================
-        # UNIÓN MOVIMIENTOS
+        # + MOVIMIENTOS
         # =================================================
         final = pd.merge(
             paso1,
@@ -150,7 +154,7 @@ elif seccion == "📥 Entradas por Comercial":
         )
 
         # =================================================
-        # TABLA RESULTADO
+        # RESULTADO BASE
         # =================================================
         resultado = final[
             [
@@ -171,8 +175,12 @@ elif seccion == "📥 Entradas por Comercial":
             "Cód. vendedor": "Comercial"
         })
 
+        resultado = resultado.sort_values(
+            by=["Referencia", "Comercial"]
+        )
+
         # =================================================
-        # VISUAL POR PRODUCTO
+        # VISUAL
         # =================================================
         st.subheader("📋 Resultado")
 
@@ -187,13 +195,10 @@ elif seccion == "📥 Entradas por Comercial":
                 f"📦 {ref} - {descripcion} | Encargado: {total_enc} | Recibido: {total_rec}"
             ):
 
-                # Si recibido menor que encargado:
-                # solo informar cantidades pedidas
                 if total_rec < total_enc:
 
                     st.warning(
-                        "Cantidad recibida inferior a la encargada. "
-                        "Se muestran solo cantidades solicitadas."
+                        "Se ha recibido menos cantidad de la solicitada."
                     )
 
                     mostrar = bloque[
@@ -201,20 +206,9 @@ elif seccion == "📥 Entradas por Comercial":
                             "Comercial",
                             "Cantidad Encargada"
                         ]
-                    ].copy()
-
-                    mostrar = mostrar.sort_values(
-                        by="Comercial"
-                    )
-
-                    st.dataframe(
-                        mostrar,
-                        use_container_width=True,
-                        hide_index=True
-                    )
+                    ]
 
                 else:
-                    # Se puede asignar completo
 
                     mostrar = bloque[
                         [
@@ -227,15 +221,41 @@ elif seccion == "📥 Entradas por Comercial":
                         "Cantidad Encargada"
                     ]
 
-                    mostrar = mostrar.sort_values(
-                        by="Comercial"
-                    )
+                st.dataframe(
+                    mostrar,
+                    use_container_width=True,
+                    hide_index=True
+                )
 
-                    st.dataframe(
-                        mostrar,
-                        use_container_width=True,
-                        hide_index=True
-                    )
+        # =================================================
+        # PREPARAR EXCEL FINAL
+        # =================================================
+        filas_excel = []
+
+        for ref, bloque in resultado.groupby("Referencia"):
+
+            total_enc = bloque["Cantidad Encargada"].sum()
+            total_rec = bloque["Cantidad Recibida"].iloc[0]
+
+            if total_rec < total_enc:
+                estado = f"RECIBIDO MENOS ({total_rec} de {total_enc})"
+            elif total_rec == total_enc:
+                estado = "COMPLETO"
+            else:
+                estado = f"RECIBIDO DE MÁS ({total_rec} de {total_enc})"
+
+            temp = bloque.copy()
+
+            temp["Total Encargado"] = total_enc
+            temp["Total Recibido"] = total_rec
+            temp["Estado"] = estado
+
+            filas_excel.append(temp)
+
+        excel_final = pd.concat(
+            filas_excel,
+            ignore_index=True
+        )
 
         # =================================================
         # DESCARGA
@@ -243,7 +263,7 @@ elif seccion == "📥 Entradas por Comercial":
         output = io.BytesIO()
 
         with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
-            resultado.to_excel(
+            excel_final.to_excel(
                 writer,
                 index=False,
                 sheet_name="Entradas"
@@ -257,4 +277,4 @@ elif seccion == "📥 Entradas por Comercial":
         )
 
     else:
-        st.info("Sube los 3 archivos.")
+        st.info("Sube los 3 archivos para comenzar.")
